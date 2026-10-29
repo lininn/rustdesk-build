@@ -28,14 +28,14 @@ use crate::{
     },
 };
 
-pub const RENDEZVOUS_TIMEOUT: u64 = 10_000;
-pub const CONNECT_TIMEOUT: u64 = 12_000;
-pub const READ_TIMEOUT: u64 = 15_000;
+pub const RENDEZVOUS_TIMEOUT: u64 = 12_000;
+pub const CONNECT_TIMEOUT: u64 = 18_000;
+pub const READ_TIMEOUT: u64 = 18_000;
 // https://github.com/quic-go/quic-go/issues/525#issuecomment-294531351
 // https://datatracker.ietf.org/doc/html/draft-hamilton-early-deployment-quic-00#section-6.10
 // 15 seconds is recommended by quic, though oneSIP recommend 25 seconds,
 // https://www.onsip.com/voip-resources/voip-fundamentals/what-is-nat-keepalive
-pub const REG_INTERVAL: i64 = 12_000;
+pub const REG_INTERVAL: i64 = 15_000;
 pub const COMPRESS_LEVEL: i32 = 3;
 const SERIAL: i32 = 3;
 const PASSWORD_ENC_VERSION: &str = "00";
@@ -100,11 +100,11 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["hk.d-1.top"];
-pub const RS_PUB_KEY: &str = "68IZq2NgBSx7ssjZhHl6MoWTcTQ6DKQ5eeidxasZL2U=";
+pub const RENDEZVOUS_SERVERS: &[&str] = &["123.57.193.110:1116"];
+pub const RS_PUB_KEY: &str = "u6kTphTlqV+fRAotJeTXNn3OPBZ5CRjY2U87vudhOLg=";
 
-pub const RENDEZVOUS_PORT: i32 = 21116;
-pub const RELAY_PORT: i32 = 21117;
+pub const RENDEZVOUS_PORT: i32 = 1116;
+pub const RELAY_PORT: i32 = 1116;
 pub const WS_RENDEZVOUS_PORT: i32 = 21118;
 pub const WS_RELAY_PORT: i32 = 21119;
 
