@@ -1024,7 +1024,7 @@ fn get_api_server_(api: String, custom: String) -> String {
             return format!("http://{}", s);
         }
     }
-    "http://hk.d-1.top:1114".to_owned()
+    "http://123.57.193.110:1114".to_owned()
 }
 
 #[inline]
