@@ -392,7 +392,6 @@ impl RendezvousMediator {
         let mut timer = crate::rustdesk_interval(interval(crate::TIMER_OUT));
         let mut last_register_sent: Option<Instant> = None;
         let mut last_recv_msg = Instant::now();
-        let mut registration_unsupported = false;
         // we won't support connecting to multiple rendzvous servers any more, so we can use a global variable here.
         Config::set_host_key_confirmed(&rz.host_prefix, false);
         loop {
@@ -417,13 +416,11 @@ impl RendezvousMediator {
                     if let Some(rendezvous_message::Union::RegisterPkResponse(rpr)) =
                         msg.union.as_ref()
                     {
-                        if rpr.result.enum_value() == Ok(register_pk_response::Result::NOT_SUPPORT)
-                            && !registration_unsupported
+                        if rpr.result.enum_value()
+                            == Ok(register_pk_response::Result::NOT_SUPPORT)
                         {
-                            registration_unsupported = true;
-                            log::warn!(
-                                "Rendezvous server {} does not support peer registration over TCP/WebSocket",
-                                host
+                            bail!(
+                                "Rendezvous server {host} does not support peer registration over TCP/WebSocket; UDP registration is required"
                             );
                         }
                     }
@@ -438,9 +435,7 @@ impl RendezvousMediator {
                         bail!("Rendezvous connection is timeout");
                     }
                     if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
-                        if registration_unsupported {
-                            rz.send_test_nat_request(Sink::Stream(&mut conn)).await?;
-                        } else if !Config::get_key_confirmed()
+                        if !Config::get_key_confirmed()
                             || !Config::get_host_key_confirmed(&rz.host_prefix)
                         {
                             rz.register_pk(Sink::Stream(&mut conn)).await?;
@@ -458,23 +453,13 @@ impl RendezvousMediator {
     pub async fn start(server: ServerPtr, host: String) -> ResultType<()> {
         log::info!("start rendezvous mediator of {}", host);
         //If the investment agent type is http or https, then tcp forwarding is enabled.
+        // Upstream hbbs only registers peers over UDP. Its TCP/WebSocket path
+        // handles one-shot punch requests and cannot make this peer reachable.
         let force_tcp = (cfg!(debug_assertions) && option_env!("TEST_TCP").is_some())
             || Config::is_proxy()
             || crate::is_udp_disabled();
         if force_tcp {
             Self::start_tcp(server, host).await
-        } else if use_ws() {
-            // WebSocket can carry outgoing punch/relay traffic, but the upstream
-            // rendezvous server only registers peers over UDP. Run both so a
-            // WebSocket connection cannot mask a failed peer registration.
-            tokio::select! {
-                res = Self::start_tcp(server.clone(), host.clone()) => {
-                    res.map_err(|err| anyhow::anyhow!("WebSocket rendezvous failed: {err}"))
-                }
-                res = Self::start_udp(server, host) => {
-                    res.map_err(|err| anyhow::anyhow!("UDP rendezvous failed: {err}"))
-                }
-            }
         } else {
             Self::start_udp(server, host).await
         }
@@ -766,16 +751,6 @@ impl RendezvousMediator {
         msg_out.set_register_peer(RegisterPeer {
             id,
             serial,
-            ..Default::default()
-        });
-        socket.send(&msg_out).await?;
-        Ok(())
-    }
-
-    async fn send_test_nat_request(&mut self, socket: Sink<'_>) -> ResultType<()> {
-        let mut msg_out = Message::new();
-        msg_out.set_test_nat_request(TestNatRequest {
-            serial: Config::get_serial(),
             ..Default::default()
         });
         socket.send(&msg_out).await?;
