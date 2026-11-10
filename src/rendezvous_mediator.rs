@@ -422,11 +422,18 @@ impl RendezvousMediator {
                     if last_recv_msg.elapsed().as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
                         bail!("Rendezvous connection is timeout");
                     }
-                    if (!Config::get_key_confirmed() ||
-                        !Config::get_host_key_confirmed(&rz.host_prefix)) &&
-                        last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
-                        rz.register_pk(Sink::Stream(&mut conn)).await?;
+                    if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
+                        if !Config::get_key_confirmed() ||
+                            !Config::get_host_key_confirmed(&rz.host_prefix) {
+                            rz.register_pk(Sink::Stream(&mut conn)).await?;
+                        } else {
+                            rz.register_peer(Sink::Stream(&mut conn)).await?;
+                        }
                         last_register_sent = Some(Instant::now());
+                        // RegisterPeer has no response. Treat a successful send as
+                        // liveness so the TCP/WebSocket connection is not dropped
+                        // while the server keeps the peer registered.
+                        last_recv_msg = Instant::now();
                     }
                 }
             }

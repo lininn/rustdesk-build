@@ -1549,6 +1549,9 @@ pub fn load_custom_client() {
             defaults
                 .entry(config::keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION.to_string())
                 .or_insert("Y".to_string());
+            defaults
+                .entry(config::keys::OPTION_ALLOW_WEBSOCKET.to_string())
+                .or_insert("Y".to_string());
         }
         return;
     }
@@ -1572,6 +1575,9 @@ pub fn load_custom_client() {
         let mut defaults = config::DEFAULT_SETTINGS.write().unwrap();
         defaults
             .entry(config::keys::OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION.to_string())
+            .or_insert("Y".to_string());
+        defaults
+            .entry(config::keys::OPTION_ALLOW_WEBSOCKET.to_string())
             .or_insert("Y".to_string());
     }
 }
