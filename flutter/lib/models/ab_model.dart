@@ -68,6 +68,7 @@ class AbModel {
   var _syncFromRecentLock = false;
   var _timerCounter = 0;
   var _cacheLoadOnceFlag = false;
+  var _registeringCurrentDevice = false;
   var listInitialized = false;
   var _maxPeerOneAb = 0;
 
@@ -180,6 +181,7 @@ class AbModel {
             await personalAb.pullAb(quiet: quiet);
           }
         }
+        await _ensureCurrentDeviceInPersonalAb();
       } catch (e) {
         debugPrint("pull ab list error: $e");
       }
@@ -194,6 +196,49 @@ class AbModel {
     _callbackPeerUpdate();
     if (listInitialized && current.initialized) {
       _saveCache();
+    }
+  }
+
+  Future<void> _ensureCurrentDeviceInPersonalAb() async {
+    final guid = _personalAbGuid;
+    if (guid == null || guid.isEmpty || _registeringCurrentDevice) return;
+    final personalAb = addressbooks[_personalAddressBookName];
+    if (personalAb == null ||
+        !personalAb.initialized ||
+        !personalAb.canWrite()) {
+      return;
+    }
+    final id = await bind.mainGetMyId();
+    if (id.isEmpty || personalAb.peers.any((peer) => peer.id == id)) return;
+
+    _registeringCurrentDevice = true;
+    try {
+      final api = "${await bind.mainGetApiServer()}/api/ab/peer/add/$guid";
+      final headers = getHttpHeaders();
+      headers['Content-Type'] = "application/json";
+      final resp = await http.post(
+        Uri.parse(api),
+        headers: headers,
+        body: jsonEncode({
+          'id': id,
+          'tags': <String>[],
+          'forceAlwaysRelay': 'false',
+        }),
+      );
+      final errMsg = _jsonDecodeActionResp(resp);
+      if (errMsg.isNotEmpty) {
+        debugPrint('register current device in personal ab failed: $errMsg');
+        return;
+      }
+      await personalAb.pullAb(quiet: true);
+      if (_currentName.value == _personalAddressBookName) {
+        _refreshTab();
+      }
+      debugPrint('registered current device $id in personal ab');
+    } catch (e) {
+      debugPrint('register current device in personal ab error: $e');
+    } finally {
+      _registeringCurrentDevice = false;
     }
   }
 
