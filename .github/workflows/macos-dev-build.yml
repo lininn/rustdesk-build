@@ -1,0 +1,148 @@
+name: macOS Dev Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  MAC_RUST_VERSION: "1.81"
+  FLUTTER_VERSION: "3.24.5"
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  VERSION: "1.4.2"
+  UPLOAD_ARTIFACT: "true"
+  BRIDGE_RUN_ID: "42966899526"
+
+jobs:
+  build-macos-x86_64:
+    name: x86_64-apple-darwin (${{ github.sha }})
+    runs-on: macos-15-intel
+    steps:
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore bridge files from known-good run
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-artifact
+          path: ./
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BRIDGE_RUN_ID }}
+
+      - name: Install build runtime
+        run: |
+          brew install llvm create-dmg nasm
+          nasm -v || true
+          if ! nasm -v 2>/dev/null | grep -qE '^NASM version 2\.1[4-6]'; then
+            echo "nasm version unsupported by aom, installing 2.16.03"
+            curl -fsSL -o /tmp/nasm.zip \
+              https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip || true
+            unzip -oq /tmp/nasm.zip -d /tmp/nasm-pkg 2>/dev/null || true
+            NEW_NASM="$(find /tmp/nasm-pkg -type f -name nasm -perm -u+x 2>/dev/null | head -1)"
+            if [ -n "${NEW_NASM}" ]; then
+              sudo cp "${NEW_NASM}" /usr/local/bin/nasm
+              sudo chmod +x /usr/local/bin/nasm
+            fi
+            nasm -v
+          fi
+          if command -v pkg-config &>/dev/null; then
+            echo "pkg-config is already installed"
+          else
+            brew install pkg-config
+          fi
+
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Patch flutter
+        run: |
+          cd $(dirname $(dirname $(which flutter)))
+          [[ "3.24.5" == ${{ env.FLUTTER_VERSION }} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      - name: Workaround for flutter issue
+        shell: bash
+        run: |
+          cd "$(dirname "$(which flutter)")"
+          sed -i -e 's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' ../packages/flutter/lib/src/scheduler/binding.dart
+          grep -n '_setFramesEnabledState(false);' ../packages/flutter/lib/src/scheduler/binding.dart
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.MAC_RUST_VERSION }}
+          targets: x86_64-apple-darwin
+          components: "rustfmt"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: macos-15-intel
+
+      - name: Setup vcpkg with GitHub Actions binary cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: Install vcpkg dependencies
+        run: |
+          if ! $VCPKG_ROOT/vcpkg \
+            install \
+            --x-install-root="$VCPKG_ROOT/installed"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r log; do
+              echo "$log:"
+              echo "======"
+              cat "$log"
+              echo "======"
+              echo ""
+            done
+            exit 1
+          fi
+          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-x64-osx-rel-out.log" || true
+
+      - name: Show version information (Rust, cargo, Clang)
+        shell: bash
+        run: |
+          clang --version || true
+          rustup -V
+          rustup toolchain list
+          rustup default
+          cargo -V
+          rustc -V
+
+      - name: Build rustdesk
+        run: |
+          MIN_MACOS_VERSION="10.14"
+          sed -i -e "s/MACOSX_DEPLOYMENT_TARGET\=[0-9]*.[0-9]*/MACOSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}/" build.py
+          sed -i -e "s/platform :osx, '.*'/platform :osx, '${MIN_MACOS_VERSION}'/" flutter/macos/Podfile
+          sed -i -e "s/osx_minimum_system_version = \"[0-9]*.[0-9]*\"/osx_minimum_system_version = \"${MIN_MACOS_VERSION}\"/" Cargo.toml
+          sed -i -e "s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/" flutter/macos/Runner.xcodeproj/project.pbxproj
+          ./build.py --flutter --hwcodec --unix-file-copy-paste
+
+      - name: Create unsigned dmg
+        run: |
+          CREATE_DMG="$(command -v create-dmg)"
+          CREATE_DMG="$(readlink -f "$CREATE_DMG")"
+          sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
+          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 "rustdesk-${VERSION}-x86_64.dmg" ./flutter/build/macos/Build/Products/Release/RustDesk.app
+
+      - name: Upload unsigned macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-unsigned-macos-x86_64
+          path: rustdesk-${{ env.VERSION }}-x86_64.dmg
