@@ -58,8 +58,10 @@ class _PeerTabPageState extends State<PeerTabPage>
           menuPadding: _menuPadding(),
         ),
         ({dynamic hint}) => gFFI.abModel.pullAb(
-            force: hint == null ? ForcePullAb.listAndCurrent : null,
-            quiet: false)),
+            force: hint == null || gFFI.abModel.needsRefresh
+                ? ForcePullAb.listAndCurrent
+                : null,
+            quiet: hint != null)),
     _TabEntry(
       MyGroup(
         menuPadding: _menuPadding(),

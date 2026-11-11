@@ -38,12 +38,13 @@ class Peer {
         platform = json['platform'] ?? '',
         alias = json['alias'] ?? '',
         tags = json['tags'] ?? [],
-        forceAlwaysRelay = json['forceAlwaysRelay'] == 'true',
+        forceAlwaysRelay = json['forceAlwaysRelay'] == true ||
+            json['forceAlwaysRelay']?.toString() == 'true',
         rdpPort = json['rdpPort'] ?? '',
         rdpUsername = json['rdpUsername'] ?? '',
         loginName = json['loginName'] ?? '',
         device_group_name = json['device_group_name'] ?? '',
-        sameServer = json['same_server'];
+        sameServer = json['sameServer'] ?? json['same_server'];
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{

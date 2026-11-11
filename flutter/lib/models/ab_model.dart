@@ -69,8 +69,15 @@ class AbModel {
   var _timerCounter = 0;
   var _cacheLoadOnceFlag = false;
   var _registeringCurrentDevice = false;
+  DateTime? _lastPullAt;
   var listInitialized = false;
   var _maxPeerOneAb = 0;
+
+  static const _refreshInterval = Duration(seconds: 15);
+
+  bool get needsRefresh =>
+      _lastPullAt == null ||
+      DateTime.now().difference(_lastPullAt!) >= _refreshInterval;
 
   late final Peers peersModel;
 
@@ -100,6 +107,7 @@ class AbModel {
     _currentName.value = '';
     await bind.mainClearAb();
     listInitialized = false;
+    _lastPullAt = null;
   }
 
 // #region ab
@@ -196,6 +204,7 @@ class AbModel {
     _callbackPeerUpdate();
     if (listInitialized && current.initialized) {
       _saveCache();
+      _lastPullAt = DateTime.now();
     }
   }
 
