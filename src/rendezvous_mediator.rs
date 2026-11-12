@@ -58,6 +58,8 @@ impl RendezvousMediator {
 
     pub async fn start_all() {
         crate::test_nat_type();
+        #[cfg(target_os = "macos")]
+        Self::start_wake_watcher();
         if config::is_outgoing_only() {
             loop {
                 sleep(1.).await;
@@ -177,6 +179,26 @@ impl RendezvousMediator {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn start_wake_watcher() {
+        std::thread::spawn(|| {
+            let mut last = std::time::SystemTime::now();
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let now = std::time::SystemTime::now();
+                let woke_from_sleep = now
+                    .duration_since(last)
+                    .map(|elapsed| elapsed > Duration::from_secs(30))
+                    .unwrap_or(true);
+                if woke_from_sleep {
+                    log::info!("macOS wake detected, restarting rendezvous mediator");
+                    Self::restart();
+                }
+                last = now;
+            }
+        });
+    }
+
     fn get_host_prefix(host: &str) -> String {
         host.split(".")
             .next()
@@ -193,7 +215,7 @@ impl RendezvousMediator {
     pub async fn start_udp(server: ServerPtr, host: String) -> ResultType<()> {
         let host = check_port(&host, RENDEZVOUS_PORT);
         log::info!("start udp: {host}");
-        let (mut socket, mut addr) = new_udp_for(&host, CONNECT_TIMEOUT).await?;
+        let (mut socket, addr) = new_udp_for(&host, CONNECT_TIMEOUT).await?;
         let mut rz = Self {
             addr: addr.clone(),
             host: host.clone(),
@@ -207,11 +229,9 @@ impl RendezvousMediator {
         let mut reg_timeout = MIN_REG_TIMEOUT;
         const MAX_FAILS1: i64 = 2;
         const MAX_FAILS2: i64 = 4;
-        const DNS_INTERVAL: i64 = 60_000;
         let mut fails = 0;
         let mut last_register_resp: Option<Instant> = None;
         let mut last_register_sent: Option<Instant> = None;
-        let mut last_dns_check = Instant::now();
         let mut old_latency = 0;
         let mut ema_latency = 0;
         loop {
@@ -278,16 +298,15 @@ impl RendezvousMediator {
                             if fails >= MAX_FAILS2 {
                                 Config::update_latency(&host, -1);
                                 old_latency = 0;
-                                if last_dns_check.elapsed().as_millis() as i64 > DNS_INTERVAL {
-                                    // in some case of network reconnect (dial IP network),
-                                    // old UDP socket not work any more after network recover
-                                    if let Some((s, new_addr)) = socket_client::rebind_udp_for(&rz.host).await? {
-                                        socket = s;
-                                        rz.addr = new_addr.clone();
-                                        addr = new_addr;
-                                    }
-                                    last_dns_check = Instant::now();
-                                }
+                                // A stale UDP socket can keep sending successfully after
+                                // sleep or a network switch while its NAT mapping is gone.
+                                // Recreate the socket through the outer reconnect loop
+                                // instead of reusing the stale mapping.
+                                bail!(
+                                    "No rendezvous response from {} after {} registration attempts, reconnecting",
+                                    host,
+                                    fails
+                                );
                             } else if fails >= MAX_FAILS1 {
                                 Config::update_latency(&host, 0);
                                 old_latency = 0;
