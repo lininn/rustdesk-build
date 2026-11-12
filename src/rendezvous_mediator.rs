@@ -182,21 +182,46 @@ impl RendezvousMediator {
     #[cfg(target_os = "macos")]
     fn start_wake_watcher() {
         std::thread::spawn(|| {
-            let mut last = std::time::SystemTime::now();
+            let mut last_time = std::time::SystemTime::now();
+            let mut last_network = Self::network_fingerprint();
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let now = std::time::SystemTime::now();
                 let woke_from_sleep = now
-                    .duration_since(last)
+                    .duration_since(last_time)
                     .map(|elapsed| elapsed > Duration::from_secs(30))
                     .unwrap_or(true);
-                if woke_from_sleep {
-                    log::info!("macOS wake detected, restarting rendezvous mediator");
+                let network = Self::network_fingerprint();
+                let network_changed = network != last_network;
+                if woke_from_sleep || network_changed {
+                    log::info!(
+                        "macOS {} detected, restarting rendezvous mediator",
+                        if woke_from_sleep {
+                            "wake"
+                        } else {
+                            "network change"
+                        }
+                    );
                     Self::restart();
                 }
-                last = now;
+                last_time = now;
+                last_network = network;
             }
         });
+    }
+
+    #[cfg(target_os = "macos")]
+    fn network_fingerprint() -> String {
+        let mut addrs = Vec::new();
+        for interface in default_net::get_interfaces() {
+            for ipv4 in &interface.ipv4 {
+                if !ipv4.addr.is_loopback() {
+                    addrs.push(format!("{}={}", interface.name, ipv4.addr));
+                }
+            }
+        }
+        addrs.sort();
+        addrs.join(",")
     }
 
     fn get_host_prefix(host: &str) -> String {

@@ -8,7 +8,9 @@ macro_rules! configure_http_client {
     ($builder:expr, $Client: ty) => {{
         // https://github.com/rustdesk/rustdesk/issues/11569
         // https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html#method.no_proxy
-        let mut builder = $builder.no_proxy();
+        let mut builder = $builder
+            .no_proxy()
+            .connect_timeout(std::time::Duration::from_secs(5));
         let client = if let Some(conf) = Config::get_socks() {
             let proxy_result = Proxy::from_conf(&conf, None);
 

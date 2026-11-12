@@ -179,8 +179,12 @@ pub fn is_ipv4(target: &TargetAddr<'_>) -> bool {
 
 #[inline]
 pub async fn query_nip_io(addr: &SocketAddr) -> ResultType<SocketAddr> {
-    tokio::net::lookup_host(format!("{}.nip.io:{}", addr.ip(), addr.port()))
-        .await?
+    crate::timeout(
+        5_000,
+        tokio::net::lookup_host(format!("{}.nip.io:{}", addr.ip(), addr.port())),
+    )
+    .await
+    .context("Timed out resolving nip.io")??
         .find(|x| x.is_ipv6())
         .context("Failed to get ipv6 from nip.io")
 }
@@ -207,9 +211,15 @@ async fn test_target(target: &str) -> ResultType<SocketAddr> {
         .context(format!("Failed to look up host for {target}"))
 }
 
+async fn test_target_timeout(target: &str, ms_timeout: u64) -> ResultType<SocketAddr> {
+    crate::timeout(ms_timeout.max(1_000), test_target(target))
+        .await
+        .with_context(|| format!("Timed out resolving or connecting to {target}"))?
+}
+
 #[inline]
 pub async fn new_direct_udp_for(target: &str) -> ResultType<(Arc<UdpSocket>, SocketAddr)> {
-    let peer_addr = test_target(target).await?;
+    let peer_addr = test_target_timeout(target, 8_000).await?;
     let local_addr = Config::get_any_listen_addr(peer_addr.is_ipv4());
     let socket = UdpSocket::bind(local_addr).await?;
     Ok((Arc::new(socket), peer_addr))
@@ -221,7 +231,7 @@ pub async fn new_udp_for(
     ms_timeout: u64,
 ) -> ResultType<(FramedSocket, TargetAddr<'static>)> {
     let (ipv4, target) = if NetworkType::Direct == Config::get_network_type() {
-        let addr = test_target(target).await?;
+        let addr = test_target_timeout(target, ms_timeout).await?;
         (addr.is_ipv4(), addr.into_target_addr()?)
     } else {
         (true, target.into_target_addr()?)
@@ -255,7 +265,7 @@ pub async fn rebind_udp_for(
     if Config::get_network_type() != NetworkType::Direct {
         return Ok(None);
     }
-    let addr = test_target(target).await?;
+    let addr = test_target_timeout(target, 8_000).await?;
     let v4 = addr.is_ipv4();
     Ok(Some((
         FramedSocket::new(Config::get_any_listen_addr(v4)).await?,
