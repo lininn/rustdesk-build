@@ -365,6 +365,15 @@ class MyTheme {
     // https://stackoverflow.com/questions/77537315/after-upgrading-to-flutter-3-16-the-app-bar-background-color-button-size-and
     useMaterial3: false,
     brightness: Brightness.light,
+    // macOS 15+ 的 PingFangUI.ttc 使用私有 hvgl 轮廓表, Flutter 3.24.x 的 Skia
+    // 无法解析, 回退到同名 CFF 字体后字形 ID 错位, 导致中文乱码。
+    // 显式改用非 hvgl 的 Hiragino Sans GB 规避 (仅 macOS, 其他平台保持默认)。
+    fontFamily: defaultTargetPlatform == TargetPlatform.macOS
+        ? 'Hiragino Sans GB'
+        : null,
+    fontFamilyFallback: defaultTargetPlatform == TargetPlatform.macOS
+        ? const ['Heiti SC', 'Songti SC']
+        : null,
     hoverColor: Color.fromARGB(255, 224, 224, 224),
     scaffoldBackgroundColor: Colors.white,
     dialogBackgroundColor: Colors.white,
@@ -463,6 +472,13 @@ class MyTheme {
   static ThemeData darkTheme = ThemeData(
     useMaterial3: false,
     brightness: Brightness.dark,
+    // 同 lightTheme: 规避 macOS 15+ PingFangUI hvgl 轮廓导致的字形错位乱码。
+    fontFamily: defaultTargetPlatform == TargetPlatform.macOS
+        ? 'Hiragino Sans GB'
+        : null,
+    fontFamilyFallback: defaultTargetPlatform == TargetPlatform.macOS
+        ? const ['Heiti SC', 'Songti SC']
+        : null,
     hoverColor: Color.fromARGB(255, 45, 46, 53),
     scaffoldBackgroundColor: Color(0xFF18191E),
     dialogBackgroundColor: Color(0xFF18191E),
